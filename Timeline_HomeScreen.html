@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Timeline Log</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0b0c0e">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #0b0c0e;
+    color: #e8e6e1;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* ---------- shared header ---------- */
+  #header {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    padding: 14px 16px 10px;
+    background: linear-gradient(#0b0c0e 80%, transparent);
+    z-index: 30;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  #crumbs {
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  #crumbs .seg { cursor: pointer; color: #9b9890; }
+  #crumbs .seg.current { color: #e8744a; cursor: default; }
+  #crumbs .sep { color: #444; font-weight: 400; }
+  #status { font-size: 10px; color: #4a4844; }
+
+  .view { position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: none; }
+  .view.active { display: block; }
+
+  /* ============ YEAR VIEW ============ */
+  #yearView {
+    padding: 64px 20px 30px;
+    overflow-y: auto;
+    height: 100%;
+  }
+  #yearTitle {
+    font-size: 42px;
+    font-weight: 800;
+    color: #2c2d30;
+    margin: 0 0 18px 2px;
+    letter-spacing: -1px;
+  }
+  #monthGrid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    max-width: 720px;
+  }
+  @media (max-width: 480px) {
+    #monthGrid { grid-template-columns: repeat(2, 1fr); }
+  }
+  .month-card {
+    background: #141517;
+    border: 1px solid #212224;
+    border-radius: 10px;
+    padding: 16px 14px;
+    cursor: pointer;
+    transition: border-color 0.15s, transform 0.1s;
+    min-height: 78px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .month-card:hover { border-color: #3a3b3e; transform: translateY(-1px); }
+  .month-card.has-future { opacity: 0.4; cursor: default; }
+  .month-card.has-future:hover { transform: none; border-color: #212224; }
+  .month-name {
+    font-size: 15px;
+    font-weight: 700;
+    color: #d8d6d0;
+  }
+  .month-meta {
+    font-size: 11px;
+    color: #55534e;
+    margin-top: 8px;
+  }
+  .month-density {
+    display: flex;
+    gap: 2px;
+    margin-top: 10px;
+    flex-wrap: wrap;
+  }
+  .density-dot {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: #2a2a2a;
+  }
+  .density-dot.active { background: #e8744a; }
+
+  /* ============ MONTH VIEW (horizontal strip of days) ============ */
+  #monthScroll {
+    position: absolute;
+    top: 60px; left: 0; right: 0; bottom: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    display: flex;
+    padding: 0 16px;
+    -webkit-overflow-scrolling: touch;
+  }
+  #monthScroll::-webkit-scrollbar { height: 6px; }
+  #monthScroll::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 3px; }
+
+  .day-card {
+    flex-shrink: 0;
+    width: 150px;
+    margin-right: 10px;
+    background: #141517;
+    border: 1px solid #212224;
+    border-radius: 10px;
+    padding: 12px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+    display: flex;
+    flex-direction: column;
+  }
+  .day-card:hover { border-color: #3a3b3e; }
+  .day-card.is-today { border-color: #e8744a; }
+  .day-card.is-future { opacity: 0.35; cursor: default; }
+  .day-num {
+    font-size: 22px;
+    font-weight: 800;
+    color: #d8d6d0;
+  }
+  .day-dow {
+    font-size: 10px;
+    color: #5c5a55;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+  }
+  .day-entries-mini {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-top: auto;
+    max-height: 90px;
+    overflow: hidden;
+  }
+  .mini-row {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10px;
+    color: #8a8780;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .mini-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .mini-more { font-size: 9px; color: #4a4844; }
+  .day-count {
+    font-size: 10px;
+    color: #4a4844;
+    margin-top: 6px;
+  }
+
+  /* ============ DAY VIEW (your original horizontal hour timeline) ============ */
+  #dayScrollArea {
+    position: absolute;
+    top: 60px; left: 0; right: 90px; bottom: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    display: flex;
+    align-items: center;
+    -webkit-overflow-scrolling: touch;
+  }
+  #dayScrollArea::-webkit-scrollbar { height: 6px; }
+  #dayScrollArea::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 3px; }
+
+  #track { position: relative; height: 2px; background: #2a2a2a; flex-shrink: 0; }
+
+  .hour-tick { position: absolute; top: -3px; width: 1px; height: 8px; background: #333; }
+  .hour-label {
+    position: absolute; top: 10px; transform: translateX(-50%);
+    font-size: 9px; color: #4a4844;
+  }
+  .entry-dot {
+    position: absolute; top: -6px; width: 14px; height: 14px; border-radius: 50%;
+    transform: translateX(-7px); cursor: pointer; border: 2px solid #0b0c0e;
+    transition: transform 0.15s ease; z-index: 5;
+  }
+  .entry-dot:hover { transform: translateX(-7px) scale(1.4); z-index: 6; }
+  .now-marker {
+    position: absolute; top: -20px; bottom: -20px; width: 2px;
+    background: #e8744a; box-shadow: 0 0 8px #e8744a;
+  }
+  .now-label {
+    position: absolute; top: -38px; transform: translateX(-50%);
+    font-size: 10px; color: #e8744a; font-weight: 700; white-space: nowrap;
+  }
+
+  #tooltip {
+    position: fixed; pointer-events: none; background: #1c1d20; border: 1px solid #333;
+    border-radius: 8px; padding: 8px 12px; font-size: 12px; line-height: 1.5;
+    z-index: 100; max-width: 220px; box-shadow: 0 4px 16px rgba(0,0,0,0.5); display: none;
+  }
+  #tooltip .tip-title { font-weight: 700; margin-bottom: 2px; }
+  #tooltip .tip-time { color: #888; font-size: 11px; }
+
+  #addPanel {
+    position: fixed; bottom: 0; left: 0; right: 0; background: #141517;
+    border-top: 1px solid #26272a; padding: 12px 16px 16px; z-index: 20; display: none;
+  }
+  #addPanel.show { display: block; }
+  #addPanel .row1 { display: flex; gap: 8px; margin-bottom: 10px; overflow-x: auto; padding-bottom: 2px; }
+  .cat-btn {
+    flex-shrink: 0; background: #1f2023; border: 1.5px solid #2c2d30; color: #ccc;
+    border-radius: 20px; padding: 7px 14px; font-size: 13px; display: flex;
+    align-items: center; gap: 6px; cursor: pointer; white-space: nowrap;
+  }
+  .cat-btn.active { border-color: currentColor; background: #24181a; }
+  .cat-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  #entryForm { display: none; }
+  #entryForm.show { display: flex; gap: 8px; align-items: center; }
+  #entryForm input[type="text"] {
+    flex: 1; background: #0e0f11; border: 1px solid #2c2d30; color: #eee;
+    padding: 9px 12px; border-radius: 8px; font-size: 13px;
+  }
+  #entryForm input[type="time"] {
+    background: #0e0f11; border: 1px solid #2c2d30; color: #eee;
+    padding: 9px 8px; border-radius: 8px; font-size: 13px;
+  }
+  #entryForm button {
+    background: #e8744a; border: none; color: #141517; font-weight: 700;
+    padding: 9px 16px; border-radius: 8px; font-size: 13px; cursor: pointer;
+  }
+  #entryForm button.cancel { background: transparent; color: #888; font-weight: 500; }
+  #placeholder { font-size: 12px; color: #5c5a55; text-align: center; }
+
+  /* day-summary side rail in day view */
+  #daySummary {
+    position: fixed; top: 60px; right: 0; bottom: 90px; width: 90px;
+    border-left: 1px solid #1d1e20; padding: 10px 8px; overflow-y: auto; z-index: 15;
+  }
+  #daySummary .sum-title { font-size: 10px; color: #4a4844; margin-bottom: 8px; letter-spacing: 0.5px; }
+  .sum-row { display: flex; align-items: center; gap: 5px; font-size: 9px; color: #6e6c66; margin-bottom: 5px; }
+  .sum-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+</style>
+
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Timeline">
+
+</head>
+<body>
+
+<div id="header">
+  <div id="crumbs"></div>
+  <div id="status"></div>
+</div>
+
+<!-- YEAR VIEW -->
+<div class="view active" id="yearView">
+  <div id="yearTitle"></div>
+  <div id="monthGrid"></div>
+</div>
+
+<!-- MONTH VIEW -->
+<div class="view" id="monthView">
+  <div id="monthScroll"></div>
+</div>
+
+<!-- DAY VIEW -->
+<div class="view" id="dayView">
+  <div id="dayScrollArea"><div id="track"></div></div>
+  <div id="daySummary"><div class="sum-title">TODAY'S LOG</div><div id="sumList"></div></div>
+</div>
+
+<div id="tooltip"></div>
+
+<div id="addPanel">
+  <div class="row1" id="catRow"></div>
+  <div id="entryForm">
+    <input type="time" id="timeInput">
+    <input type="text" id="textInput" placeholder="what happened?" maxlength="60">
+    <button class="cancel" id="cancelBtn">cancel</button>
+    <button id="saveBtn">add</button>
+  </div>
+  <div id="placeholder">pick a category above, or tap directly on the line</div>
+</div>
+
+<script>
+const CATEGORIES = [
+  { id: 'food',     label: 'Food',     color: '#e8b84a' },
+  { id: 'drink',    label: 'Drink',    color: '#4ab0e8' },
+  { id: 'smoke',    label: 'Smoke',    color: '#888888' },
+  { id: 'sleep',    label: 'Sleep',    color: '#7a6ae8' },
+  { id: 'exercise', label: 'Exercise', color: '#4ae89a' },
+  { id: 'work',     label: 'Work',     color: '#e84a6a' },
+  { id: 'other',    label: 'Other',    color: '#cccccc' },
+];
+const PX_PER_HOUR = 90;
+const STORAGE_KEY = 'timeline-entries';
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const DOW = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
+
+let entries = [];
+let currentYear = new Date().getFullYear();
+let currentMonth = null; // 0-11
+let currentDay = null;   // Date object (day start)
+let activeCategory = null;
+let pendingTimestamp = null;
+
+const tooltip = document.getElementById('tooltip');
+const statusEl = document.getElementById('status');
+const crumbsEl = document.getElementById('crumbs');
+const addPanel = document.getElementById('addPanel');
+const catRow = document.getElementById('catRow');
+const entryForm = document.getElementById('entryForm');
+const placeholder = document.getElementById('placeholder');
+const timeInput = document.getElementById('timeInput');
+const textInput = document.getElementById('textInput');
+
+// ---------- storage ----------
+async function loadEntries() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    entries = raw ? JSON.parse(raw) : [];
+  } catch (e) { entries = []; }
+}
+async function saveEntries() {
+  try {
+    statusEl.textContent = 'saving…';
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+    statusEl.textContent = 'saved';
+    setTimeout(() => statusEl.textContent = '', 1200);
+  } catch (e) { statusEl.textContent = 'save failed'; }
+}
+
+// ---------- helpers ----------
+function catInfo(id) { return CATEGORIES.find(c => c.id === id) || CATEGORIES[CATEGORIES.length-1]; }
+function fmtTime24(d) {
+  const h = String(d.getHours()).padStart(2,'0');
+  const m = String(d.getMinutes()).padStart(2,'0');
+  return `${h}:${m}`;
+}
+function sameDay(a,b) { return a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate(); }
+function entriesForDay(d) { return entries.filter(e => sameDay(new Date(e.time), d)); }
+function entriesForMonth(year, month) {
+  return entries.filter(e => { const t = new Date(e.time); return t.getFullYear()===year && t.getMonth()===month; });
+}
+function daysInMonth(year, month) { return new Date(year, month+1, 0).getDate(); }
+function escapeHtml(s) { const div = document.createElement('div'); div.textContent = s; return div.innerHTML; }
+
+// ---------- navigation / breadcrumbs ----------
+function setCrumbs() {
+  let html = `<span class="seg ${currentMonth===null ? 'current':''}" data-go="year">${currentYear}</span>`;
+  if (currentMonth !== null) {
+    html += `<span class="sep">/</span><span class="seg ${!currentDay ? 'current':''}" data-go="month">${MONTH_NAMES[currentMonth]}</span>`;
+  }
+  if (currentDay) {
+    html += `<span class="sep">/</span><span class="seg current">${currentDay.getDate()}</span>`;
+  }
+  crumbsEl.innerHTML = html;
+  crumbsEl.querySelectorAll('.seg').forEach(seg => {
+    seg.addEventListener('click', () => {
+      const go = seg.dataset.go;
+      if (go === 'year') showYear();
+      else if (go === 'month') showMonth(currentMonth);
+    });
+  });
+}
+
+function showView(id) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  addPanel.classList.toggle('show', id === 'dayView');
+  document.getElementById('daySummary').style.display = id === 'dayView' ? 'block' : 'none';
+}
+
+// ============ YEAR VIEW ============
+function showYear() {
+  currentMonth = null;
+  currentDay = null;
+  setCrumbs();
+  showView('yearView');
+  renderYear();
+}
+
+function renderYear() {
+  document.getElementById('yearTitle').textContent = currentYear;
+  const grid = document.getElementById('monthGrid');
+  grid.innerHTML = '';
+  const now = new Date();
+  MONTH_NAMES.forEach((name, idx) => {
+    const isFuture = (currentYear > now.getFullYear()) || (currentYear === now.getFullYear() && idx > now.getMonth());
+    const card = document.createElement('div');
+    card.className = 'month-card' + (isFuture ? ' has-future' : '');
+    const monthEntries = entriesForMonth(currentYear, idx);
+    const dCount = daysInMonth(currentYear, idx);
+    const activeDays = new Set(monthEntries.map(e => new Date(e.time).getDate()));
+
+    let dotsHtml = '';
+    for (let d = 1; d <= dCount; d++) {
+      dotsHtml += `<div class="density-dot ${activeDays.has(d) ? 'active' : ''}"></div>`;
+    }
+
+    card.innerHTML = `
+      <div>
+        <div class="month-name">${name}</div>
+        <div class="month-meta">${monthEntries.length ? monthEntries.length + ' entries' : 'no entries'}</div>
+      </div>
+      <div class="month-density">${dotsHtml}</div>
+    `;
+    if (!isFuture) {
+      card.addEventListener('click', () => showMonth(idx));
+    }
+    grid.appendChild(card);
+  });
+}
+
+// ============ MONTH VIEW ============
+function showMonth(monthIdx) {
+  currentMonth = monthIdx;
+  currentDay = null;
+  setCrumbs();
+  showView('monthView');
+  renderMonth();
+}
+
+function renderMonth() {
+  const scroll = document.getElementById('monthScroll');
+  scroll.innerHTML = '';
+  const dCount = daysInMonth(currentYear, currentMonth);
+  const now = new Date();
+  let todayCardEl = null;
+
+  for (let d = 1; d <= dCount; d++) {
+    const dateObj = new Date(currentYear, currentMonth, d);
+    const isFuture = dateObj > now && !sameDay(dateObj, now);
+    const isToday = sameDay(dateObj, now);
+    const dayEntries = entriesForDay(dateObj).sort((a,b) => new Date(a.time)-new Date(b.time));
+
+    const card = document.createElement('div');
+    card.className = 'day-card' + (isToday ? ' is-today' : '') + (isFuture ? ' is-future' : '');
+
+    let miniHtml = '';
+    const shown = dayEntries.slice(0, 6);
+    shown.forEach(e => {
+      const c = catInfo(e.category);
+      miniHtml += `<div class="mini-row"><span class="mini-dot" style="background:${c.color}"></span>${fmtTime24(new Date(e.time))} ${escapeHtml(e.text || c.label)}</div>`;
+    });
+    if (dayEntries.length > 6) {
+      miniHtml += `<div class="mini-more">+${dayEntries.length - 6} more</div>`;
+    }
+
+    card.innerHTML = `
+      <div class="day-num">${d}</div>
+      <div class="day-dow">${DOW[dateObj.getDay()]}</div>
+      <div class="day-entries-mini">${miniHtml}</div>
+      <div class="day-count">${dayEntries.length ? dayEntries.length + ' logged' : '—'}</div>
+    `;
+    if (!isFuture) {
+      card.addEventListener('click', () => showDay(dateObj));
+    }
+    scroll.appendChild(card);
+    if (isToday) todayCardEl = card;
+  }
+
+  requestAnimationFrame(() => {
+    if (todayCardEl) {
+      scroll.scrollLeft = Math.max(0, todayCardEl.offsetLeft - scroll.clientWidth/2 + 75);
+    }
+  });
+}
+
+// ============ DAY VIEW ============
+function showDay(dateObj) {
+  currentDay = new Date(dateObj);
+  currentDay.setHours(0,0,0,0);
+  setCrumbs();
+  showView('dayView');
+  renderDay();
+}
+
+function renderDay() {
+  const track = document.getElementById('track');
+  track.innerHTML = '';
+  track.style.width = (24 * PX_PER_HOUR) + 'px';
+
+  for (let h = 0; h <= 24; h++) {
+    const x = h * PX_PER_HOUR;
+    if (h < 24) {
+      const tick = document.createElement('div');
+      tick.className = 'hour-tick';
+      tick.style.left = x + 'px';
+      track.appendChild(tick);
+    }
+    if (h % 2 === 0 && h < 24) {
+      const hl = document.createElement('div');
+      hl.className = 'hour-label';
+      hl.style.left = x + 'px';
+      hl.textContent = String(h).padStart(2,'0') + ':00';
+      track.appendChild(hl);
+    }
+  }
+
+  const now = new Date();
+  if (sameDay(now, currentDay)) {
+    const x = (now.getHours() + now.getMinutes()/60) * PX_PER_HOUR;
+    const nm = document.createElement('div');
+    nm.className = 'now-marker';
+    nm.style.left = x + 'px';
+    track.appendChild(nm);
+    const nl = document.createElement('div');
+    nl.className = 'now-label';
+    nl.style.left = x + 'px';
+    nl.textContent = 'NOW ' + fmtTime24(now);
+    track.appendChild(nl);
+  }
+
+  const dayEntries = entriesForDay(currentDay);
+  dayEntries.forEach((e) => {
+    const idx = entries.indexOf(e);
+    const t = new Date(e.time);
+    const x = (t.getHours() + t.getMinutes()/60) * PX_PER_HOUR;
+    const dot = document.createElement('div');
+    dot.className = 'entry-dot';
+    dot.style.left = x + 'px';
+    const c = catInfo(e.category);
+    dot.style.background = c.color;
+
+    dot.addEventListener('mouseenter', (ev) => showTooltip(ev, e));
+    dot.addEventListener('mousemove', positionTooltip);
+    dot.addEventListener('mouseleave', hideTooltip);
+    dot.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      if (confirm(`Remove "${e.text || c.label}" at ${fmtTime24(t)}?`)) {
+        entries.splice(idx, 1);
+        saveEntries();
+        renderDay();
+        renderSummary();
+      }
+    });
+    track.appendChild(dot);
+  });
+
+  renderSummary();
+
+  requestAnimationFrame(() => {
+    const scrollArea = document.getElementById('dayScrollArea');
+    if (sameDay(now, currentDay)) {
+      const x = (now.getHours() + now.getMinutes()/60) * PX_PER_HOUR;
+      scrollArea.scrollLeft = Math.max(0, x - scrollArea.clientWidth * 0.6);
+    } else {
+      scrollArea.scrollLeft = 0;
+    }
+  });
+}
+
+function renderSummary() {
+  const list = document.getElementById('sumList');
+  list.innerHTML = '';
+  const dayEntries = entriesForDay(currentDay).sort((a,b) => new Date(a.time)-new Date(b.time));
+  if (dayEntries.length === 0) {
+    list.innerHTML = '<div style="font-size:10px;color:#3a3935;">nothing yet</div>';
+    return;
+  }
+  dayEntries.forEach(e => {
+    const c = catInfo(e.category);
+    const row = document.createElement('div');
+    row.className = 'sum-row';
+    row.innerHTML = `<span class="sum-dot" style="background:${c.color}"></span>${fmtTime24(new Date(e.time))}`;
+    row.title = e.text || c.label;
+    list.appendChild(row);
+  });
+}
+
+function showTooltip(ev, entry) {
+  const c = catInfo(entry.category);
+  tooltip.innerHTML = `<div class="tip-title" style="color:${c.color}">${c.label}</div>
+    <div>${escapeHtml(entry.text || '(no note)')}</div>
+    <div class="tip-time">${fmtTime24(new Date(entry.time))}</div>`;
+  tooltip.style.display = 'block';
+  positionTooltip(ev);
+}
+function positionTooltip(ev) {
+  tooltip.style.left = Math.min(ev.clientX + 12, window.innerWidth - 230) + 'px';
+  tooltip.style.top = Math.max(ev.clientY - 50, 8) + 'px';
+}
+function hideTooltip() { tooltip.style.display = 'none'; }
+
+// ---------- add-entry panel (only active in day view) ----------
+function buildCatRow() {
+  catRow.innerHTML = '';
+  CATEGORIES.forEach(c => {
+    const btn = document.createElement('button');
+    btn.className = 'cat-btn';
+    btn.style.color = c.color;
+    btn.innerHTML = `<span class="cat-dot" style="background:${c.color}"></span>${c.label}`;
+    btn.addEventListener('click', () => {
+      activeCategory = c.id;
+      document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const now = new Date();
+      const base = sameDay(now, currentDay) ? now : currentDay;
+      timeInput.value = fmtTime24(pendingTimestamp || base);
+      openForm();
+    });
+    catRow.appendChild(btn);
+  });
+}
+function openForm() {
+  entryForm.classList.add('show');
+  placeholder.style.display = 'none';
+  textInput.focus();
+}
+function closeForm() {
+  entryForm.classList.remove('show');
+  placeholder.style.display = 'block';
+  textInput.value = '';
+  activeCategory = null;
+  pendingTimestamp = null;
+  document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
+}
+document.getElementById('cancelBtn').addEventListener('click', closeForm);
+document.getElementById('saveBtn').addEventListener('click', () => {
+  if (!activeCategory) { alert('pick a category first'); return; }
+  const [hh, mm] = timeInput.value.split(':').map(Number);
+  const base = new Date(currentDay);
+  base.setHours(hh, mm, 0, 0);
+  entries.push({ category: activeCategory, text: textInput.value.trim(), time: base.toISOString() });
+  entries.sort((a,b) => new Date(a.time) - new Date(b.time));
+  saveEntries();
+  closeForm();
+  renderDay();
+});
+
+document.getElementById('track').addEventListener('click', (ev) => {
+  if (ev.target.classList.contains('entry-dot')) return;
+  const rect = ev.currentTarget.getBoundingClientRect();
+  const x = ev.clientX - rect.left;
+  const totalMinutes = (x / PX_PER_HOUR) * 60;
+  const h = Math.floor(totalMinutes / 60);
+  const m = Math.round(totalMinutes % 60);
+  pendingTimestamp = new Date(currentDay);
+  pendingTimestamp.setHours(h, m, 0, 0);
+  timeInput.value = fmtTime24(pendingTimestamp);
+  if (!activeCategory) activeCategory = 'other';
+  document.querySelectorAll('.cat-btn').forEach((b,i) => b.classList.toggle('active', CATEGORIES[i].id === activeCategory));
+  openForm();
+});
+
+// ---------- init ----------
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
+
+async function init() {
+  buildCatRow();
+  await loadEntries();
+  showYear();
+  setInterval(() => { if (currentDay) renderDay(); }, 60000);
+}
+init();
+</script>
+</body>
+</html>
